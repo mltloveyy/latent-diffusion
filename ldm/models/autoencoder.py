@@ -1,5 +1,5 @@
 import torch
-import pytorch_lightning as pl
+import lightning.pytorch as pl
 import torch.nn.functional as F
 from contextlib import contextmanager
 
@@ -9,6 +9,11 @@ from ldm.modules.diffusionmodules.model import Encoder, Decoder
 from ldm.modules.distributions.distributions import DiagonalGaussianDistribution
 
 from ldm.util import instantiate_from_config
+
+import numpy as np
+from packaging import version
+from torch.optim.lr_scheduler import LambdaLR
+from ldm.modules.ema import LitEma
 
 
 class VQModel(pl.LightningModule):
