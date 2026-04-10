@@ -57,7 +57,7 @@ def get_parser(**parser_kwargs):
         metavar="base_config.yaml",
         help="paths to base configs. Loaded from left-to-right. "
              "Parameters can be overwritten or added with command-line options of the form `--key value`.",
-        default=["configs/autoencoder/autoencoder_kl_16x16x16.yaml"],
+        default=["configs/autoencoder/autoencoder_kl_32x32x4_fp.yaml"],
     )
     parser.add_argument(
         "-t",
