@@ -26,16 +26,20 @@ model:
 data:
   target: main.DataModuleFromConfig
   params:
-    batch_size: 12
+    batch_size: 4
     wrap: True
     train:
-      target: ldm.data.fingerprint_bscan.FingerprintTrain
+      target: ldm.data.fingerprint.FingerprintTrain
       params:
-        data_root: data/fingerprint-bscan
+        data_root: data/fingerprint/UESTC
+        window_size: 800
+        input_size: 256
     validation:
-      target: ldm.data.fingerprint_bscan.FingerprintValidation
+      target: ldm.data.fingerprint.FingerprintValidation
       params:
-        data_root: data/fingerprint-bscan
+        data_root: data/fingerprint/UESTC
+        window_size: 800
+        input_size: 256
 
 lightning:
   callbacks:
@@ -47,5 +51,6 @@ lightning:
         increase_log_steps: True
 
   trainer:
+    devices: 2,3
     benchmark: True
-    accumulate_grad_batches: 2
+    accumulate_grad_batches: 1
