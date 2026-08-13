@@ -377,8 +377,6 @@ class AutoencoderKL(pl.LightningModule):
         self.log_dict(log_dict_ae, prog_bar=False, logger=True, on_step=True, on_epoch=False)
         self.log("discloss", discloss, prog_bar=True, logger=True, on_step=True, on_epoch=True)
         self.log_dict(log_dict_disc, prog_bar=False, logger=True, on_step=True, on_epoch=False)
-        
-        return aeloss + discloss
 
     def validation_step(self, batch, batch_idx):
         inputs = self.get_input(batch, self.image_key)
