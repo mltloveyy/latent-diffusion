@@ -7,10 +7,11 @@ model:
     lossconfig:
       target: ldm.modules.losses.SSIMWithDiscriminator
       params:
-        disc_start: 4001
-        kl_weight: 0.000001
+        disc_start: 40001
+        kl_weight: 1e-6
         disc_weight: 0.5
-        nll_weight: 0.001
+        nll_weight: 1e-4
+        accumulate_grad_batches: 4
 
     ddconfig:
       double_z: True
@@ -54,4 +55,3 @@ lightning:
   trainer:
     devices: 2,3
     benchmark: True
-    accumulate_grad_batches: 1

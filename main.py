@@ -479,12 +479,13 @@ if __name__ == "__main__":
         trainer_config = lightning_config.get("trainer", OmegaConf.create())
         if not "devices" in trainer_config:
             cpu = True
+            ngpu = 1
         else:
             gpuinfo = trainer_config["devices"]
             print(f"Running on GPUs {gpuinfo}")
+            ngpu = len(lightning_config.trainer.devices.strip(",").split(','))
             cpu = False
-            trainer_config["devices"] = gpuinfo
-            trainer_config["strategy"] = "ddp_find_unused_parameters_true"
+            trainer_config["strategy"] = "ddp_find_unused_parameters_true" if ngpu > 1 else "auto"
         trainer_opt = argparse.Namespace(**trainer_config)
         lightning_config.trainer = trainer_config
 
@@ -623,14 +624,7 @@ if __name__ == "__main__":
 
         # configure learning rate
         bs, base_lr = config.data.params.batch_size, config.model.base_learning_rate
-        if not cpu:
-            ngpu = len(lightning_config.trainer.devices.strip(",").split(','))
-        else:
-            ngpu = 1
-        if 'accumulate_grad_batches' in lightning_config.trainer:
-            accumulate_grad_batches = lightning_config.trainer.accumulate_grad_batches
-        else:
-            accumulate_grad_batches = 1
+        accumulate_grad_batches = 1
         print(f"accumulate_grad_batches = {accumulate_grad_batches}")
         lightning_config.trainer.accumulate_grad_batches = accumulate_grad_batches
         if opt.scale_lr:

@@ -114,8 +114,8 @@ class LPIPSWithDiscriminator(nn.Module):
 class SSIMWithDiscriminator(nn.Module):
     def __init__(self, disc_start, logvar_init=0.0, kl_weight=1.0, pixelloss_weight=1.0,
                  disc_num_layers=3, disc_in_channels=3, disc_factor=1.0, disc_weight=1.0,
-                 structural_weight=1.0, nll_weight=1.0, use_actnorm=False, disc_conditional=False,
-                 disc_loss="hinge"):
+                 structural_weight=1.0, nll_weight=1.0, accumulate_grad_batches=4, 
+                 use_actnorm=False, disc_conditional=False, disc_loss="hinge"):
 
         super().__init__()
         assert disc_loss in ["hinge", "vanilla"]
@@ -124,6 +124,7 @@ class SSIMWithDiscriminator(nn.Module):
         self.structural_loss = MS_SSIM(data_range=2.0).eval()
         self.structural_weight = structural_weight
         self.nll_weight = nll_weight
+        self.accumulate_grad_batches = accumulate_grad_batches
         # output log variance
         self.logvar = nn.Parameter(torch.ones(size=()) * logvar_init)
 
@@ -153,22 +154,21 @@ class SSIMWithDiscriminator(nn.Module):
     def forward(self, inputs, reconstructions, posteriors, optimizer_idx,
                 global_step, last_layer=None, cond=None, split="train",
                 weights=None):
-        rec_loss = torch.abs(inputs.contiguous() - reconstructions.contiguous())
-        if self.structural_weight > 0:
-            s_loss = self.structural_loss(inputs.contiguous(), reconstructions.contiguous())
-            rec_loss = rec_loss + self.structural_weight * s_loss
-
-        nll_loss = rec_loss / torch.exp(self.logvar) + self.logvar
-        weighted_nll_loss = nll_loss
-        if weights is not None:
-            weighted_nll_loss = weights*nll_loss
-        weighted_nll_loss = torch.sum(weighted_nll_loss) / weighted_nll_loss.shape[0]
-        nll_loss = torch.sum(nll_loss) / nll_loss.shape[0]
-        kl_loss = posteriors.kl()
-        kl_loss = torch.sum(kl_loss) / kl_loss.shape[0]
-
-        # now the GAN part
         if optimizer_idx == 0:
+            rec_loss = torch.abs(inputs.contiguous() - reconstructions.contiguous())
+            if self.structural_weight > 0:
+                s_loss = self.structural_loss(inputs.contiguous(), reconstructions.contiguous())
+                rec_loss = rec_loss + self.structural_weight * s_loss
+
+            nll_loss = rec_loss / torch.exp(self.logvar) + self.logvar
+            weighted_nll_loss = nll_loss
+            if weights is not None:
+                weighted_nll_loss = weights*nll_loss
+            weighted_nll_loss = torch.sum(weighted_nll_loss) / weighted_nll_loss.shape[0]
+            nll_loss = torch.sum(nll_loss) / nll_loss.shape[0]
+            kl_loss = posteriors.kl()
+            kl_loss = torch.sum(kl_loss) / kl_loss.shape[0]
+            
             # generator update
             if cond is None:
                 assert not self.disc_conditional

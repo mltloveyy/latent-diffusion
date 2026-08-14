@@ -358,20 +358,30 @@ class AutoencoderKL(pl.LightningModule):
         inputs = self.get_input(batch, self.image_key)
         reconstructions, posterior = self(inputs)
         opt_ae, opt_disc = self.optimizers()
+        should_update = (batch_idx + 1) % self.loss.accumulate_grad_batches == 0
         
         # train encoder+decoder+logvar
-        opt_ae.zero_grad()
+        self.toggle_optimizer(opt_ae)
         aeloss, log_dict_ae = self.loss(inputs, reconstructions, posterior, 0, self.global_step,
                                         last_layer=self.get_last_layer(), split="train")
-        self.manual_backward(aeloss)
-        opt_ae.step()
+        scaled_aeloss = aeloss / self.loss.accumulate_grad_batches
+        self.manual_backward(scaled_aeloss)
+        if should_update:
+            print("update ae params")
+            opt_ae.step()
+            opt_ae.zero_grad()
+        self.untoggle_optimizer(opt_ae)
 
         # train the discriminator
-        opt_disc.zero_grad()
+        self.toggle_optimizer(opt_disc)
         discloss, log_dict_disc = self.loss(inputs, reconstructions, posterior, 1, self.global_step,
                                             last_layer=self.get_last_layer(), split="train")
-        self.manual_backward(discloss)
-        opt_disc.step()
+        scaled_discloss = discloss / self.loss.accumulate_grad_batches
+        self.manual_backward(scaled_discloss)
+        if should_update:
+            opt_disc.step()
+            opt_disc.zero_grad()
+        self.untoggle_optimizer(opt_disc)
 
         self.log("aeloss", aeloss, prog_bar=True, logger=True, on_step=True, on_epoch=True)
         self.log_dict(log_dict_ae, prog_bar=False, logger=True, on_step=True, on_epoch=False)
