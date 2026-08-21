@@ -367,7 +367,6 @@ class AutoencoderKL(pl.LightningModule):
         scaled_aeloss = aeloss / self.loss.accumulate_grad_batches
         self.manual_backward(scaled_aeloss)
         if should_update:
-            print("update ae params")
             opt_ae.step()
             opt_ae.zero_grad()
         self.untoggle_optimizer(opt_ae)
@@ -391,13 +390,12 @@ class AutoencoderKL(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         inputs = self.get_input(batch, self.image_key)
         reconstructions, posterior = self(inputs)
-        aeloss, log_dict_ae = self.loss(inputs, reconstructions, posterior, 0, self.global_step,
+        _, log_dict_ae = self.loss(inputs, reconstructions, posterior, 0, self.global_step,
                                         last_layer=self.get_last_layer(), split="val")
 
-        discloss, log_dict_disc = self.loss(inputs, reconstructions, posterior, 1, self.global_step,
+        _, log_dict_disc = self.loss(inputs, reconstructions, posterior, 1, self.global_step,
                                             last_layer=self.get_last_layer(), split="val")
 
-        self.log("val/rec_loss", log_dict_ae["val/rec_loss"])
         self.log_dict(log_dict_ae)
         self.log_dict(log_dict_disc)
         return self.log_dict

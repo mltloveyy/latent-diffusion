@@ -114,8 +114,8 @@ class LPIPSWithDiscriminator(nn.Module):
 class SSIMWithDiscriminator(nn.Module):
     def __init__(self, disc_start, logvar_init=0.0, kl_weight=1.0, pixelloss_weight=1.0,
                  disc_num_layers=3, disc_in_channels=3, disc_factor=1.0, disc_weight=1.0,
-                 structural_weight=1.0, nll_weight=1.0, accumulate_grad_batches=4, 
-                 use_actnorm=False, disc_conditional=False, disc_loss="hinge"):
+                 structural_weight=1.0, accumulate_grad_batches=4, use_actnorm=False,
+                 disc_conditional=False, disc_loss="hinge"):
 
         super().__init__()
         assert disc_loss in ["hinge", "vanilla"]
@@ -123,7 +123,6 @@ class SSIMWithDiscriminator(nn.Module):
         self.pixel_weight = pixelloss_weight
         self.structural_loss = MS_SSIM(data_range=2.0).eval()
         self.structural_weight = structural_weight
-        self.nll_weight = nll_weight
         self.accumulate_grad_batches = accumulate_grad_batches
         # output log variance
         self.logvar = nn.Parameter(torch.ones(size=()) * logvar_init)
@@ -188,7 +187,7 @@ class SSIMWithDiscriminator(nn.Module):
                 d_weight = torch.tensor(0.0)
 
             disc_factor = adopt_weight(self.disc_factor, global_step, threshold=self.discriminator_iter_start)
-            loss = self.nll_weight * weighted_nll_loss + self.kl_weight * kl_loss + d_weight * disc_factor * g_loss
+            loss = weighted_nll_loss + self.kl_weight * kl_loss + d_weight * disc_factor * g_loss
 
             log = {"{}/total_loss".format(split): loss.clone().detach().mean(), "{}/logvar".format(split): self.logvar.detach(),
                    "{}/kl_loss".format(split): kl_loss.detach().mean(), "{}/nll_loss".format(split): nll_loss.detach().mean(),

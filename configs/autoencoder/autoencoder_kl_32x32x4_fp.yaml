@@ -8,9 +8,8 @@ model:
       target: ldm.modules.losses.SSIMWithDiscriminator
       params:
         disc_start: 40001
-        kl_weight: 1e-6
+        kl_weight: 1e-2
         disc_weight: 0.5
-        nll_weight: 1e-4
         accumulate_grad_batches: 4
 
     ddconfig:
@@ -51,7 +50,10 @@ lightning:
         batch_frequency: 1000
         max_images: 8
         increase_log_steps: True
+    metrics_over_epochs_checkpoint:
+      params:
+        every_n_epochs: 10
 
   trainer:
-    devices: 2,3
+    devices: 3,
     benchmark: True

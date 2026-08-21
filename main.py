@@ -242,14 +242,14 @@ class SetupCallback(Callback):
         self.lightning_config = lightning_config
 
     # [PL2.x]
-    def on_exception(self, trainer: Trainer, pl_module: pl.LightningModule, exception):
+    def on_exception(self, trainer, pl_module, exception):
         if trainer.global_rank == 0:
             print("Summoning checkpoint.")
             ckpt_path = os.path.join(self.ckptdir, "last.ckpt")
             trainer.save_checkpoint(ckpt_path)
 
     # [PL2.x]
-    def on_fit_start(self, trainer: Trainer, pl_module: pl.LightningModule):
+    def on_fit_start(self, trainer, pl_module):
         if trainer.global_rank == 0:
             # Create logdirs and save configs
             os.makedirs(self.logdir, exist_ok=True)
@@ -473,9 +473,8 @@ if __name__ == "__main__":
         configs = [OmegaConf.load(cfg) for cfg in opt.base]
         cli = OmegaConf.from_dotlist(unknown)
         config = OmegaConf.merge(*configs, cli)
-        # lightning config
         lightning_config = config.pop("lightning", OmegaConf.create())
-        # trainer config
+        # merge trainer cli with config
         trainer_config = lightning_config.get("trainer", OmegaConf.create())
         if not "devices" in trainer_config:
             cpu = True
@@ -520,29 +519,6 @@ if __name__ == "__main__":
         logger_cfg = OmegaConf.merge(default_logger_cfg, logger_cfg)
         trainer_kwargs["logger"] = instantiate_from_config(logger_cfg)
 
-        # modelcheckpoint - use TrainResult/EvalResult(checkpoint_on=metric) to
-        # specify which metric is used to determine best models
-        default_modelckpt_cfg = {
-            "target": "lightning.pytorch.callbacks.ModelCheckpoint",
-            "params": {
-                "dirpath": ckptdir,
-                "filename": "{epoch:06}",
-                "verbose": True,
-                "save_last": True,
-            }
-        }
-        if hasattr(model, "monitor"):
-            print(f"Monitoring {model.monitor} as checkpoint metric.")
-            default_modelckpt_cfg["params"]["monitor"] = model.monitor
-            default_modelckpt_cfg["params"]["save_top_k"] = 3
-
-        if "modelcheckpoint" in lightning_config:
-            modelckpt_cfg = lightning_config.modelcheckpoint
-        else:
-            modelckpt_cfg =  OmegaConf.create()
-        modelckpt_cfg = OmegaConf.merge(default_modelckpt_cfg, modelckpt_cfg)
-        print(f"Merged modelckpt-cfg: \n{modelckpt_cfg}")
-
         # add callback which sets up log directory
         default_callbacks_cfg = {
             "setup_callback": {
@@ -581,24 +557,45 @@ if __name__ == "__main__":
             callbacks_cfg = lightning_config.callbacks
         else:
             callbacks_cfg = OmegaConf.create()
-
-        if 'metrics_over_trainsteps_checkpoint' in callbacks_cfg:
-            print(
-                'Caution: Saving checkpoints every n train steps without deleting. This might require some free space.')
-            default_metrics_over_trainsteps_ckpt_dict = {
-                'metrics_over_trainsteps_checkpoint':
-                    {"target": 'lightning.pytorch.callbacks.ModelCheckpoint',
-                     'params': {
-                         "dirpath": os.path.join(ckptdir, 'trainstep_checkpoints'),
-                         "filename": "{epoch:06}-{step:09}",
-                         "verbose": True,
-                         'save_top_k': -1,
-                         'every_n_train_steps': 10000,
-                         'save_weights_only': True
-                     }
-                     }
+            
+        # modelcheckpoint - use TrainResult/EvalResult(checkpoint_on=metric) to
+        # specify which metric is used to determine best models
+        default_modelckpt_cfg = {
+            "target": "lightning.pytorch.callbacks.ModelCheckpoint",
+            "params": {
+                "dirpath": ckptdir,
+                "filename": "best-{epoch:06}-{step:09}",
+                "verbose": True,
+                "save_last": True,
             }
-            default_callbacks_cfg.update(default_metrics_over_trainsteps_ckpt_dict)
+        }
+        if hasattr(model, "monitor"):
+            print(f"Monitoring {model.monitor} as checkpoint metric.")
+            default_modelckpt_cfg["params"]["monitor"] = model.monitor
+            default_modelckpt_cfg["params"]["save_top_k"] = 3
+
+        if "modelcheckpoint" in lightning_config:
+            modelckpt_cfg = lightning_config.modelcheckpoint
+        else:
+            modelckpt_cfg =  OmegaConf.create()
+        modelckpt_cfg = OmegaConf.merge(default_modelckpt_cfg, modelckpt_cfg)
+        print(f"Merged modelckpt-cfg: \n{modelckpt_cfg}")
+        default_callbacks_cfg['modelcheckpoint'] = modelckpt_cfg
+
+        if 'metrics_over_epochs_checkpoint' in callbacks_cfg:
+            print(
+                'Caution: Saving checkpoints every n epochs without deleting. This might require some free space.')
+            default_callbacks_cfg['metrics_over_epochs_checkpoint'] = {
+                "target": 'lightning.pytorch.callbacks.ModelCheckpoint',
+                'params': {
+                    "dirpath": ckptdir,
+                    "filename": "{epoch:06}",
+                    "verbose": True,
+                    'save_top_k': -1,
+                    'every_n_epochs': 5,
+                    'save_weights_only': True
+                }
+            }
 
         callbacks_cfg = OmegaConf.merge(default_callbacks_cfg, callbacks_cfg)
         if 'ignore_keys_callback' in callbacks_cfg and hasattr(trainer_opt, 'resume_from_checkpoint'):
