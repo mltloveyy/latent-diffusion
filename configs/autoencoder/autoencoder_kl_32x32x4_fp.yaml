@@ -1,16 +1,15 @@
 model:
-  base_learning_rate: 5e-5
+  base_learning_rate: 4.5e-6
   target: ldm.models.autoencoder.AutoencoderKL
   params:
     monitor: "val/rec_loss"
     embed_dim: 4
     lossconfig:
-      target: ldm.modules.losses.SSIMWithDiscriminator
+      target: ldm.modules.losses.LPIPSWithDiscriminator
       params:
-        disc_start: 40001
-        kl_weight: 1e-2
+        disc_start: 50001
+        kl_weight: 1e-6
         disc_weight: 0.5
-        accumulate_grad_batches: 4
 
     ddconfig:
       double_z: True
@@ -27,7 +26,7 @@ model:
 data:
   target: main.DataModuleFromConfig
   params:
-    batch_size: 4
+    batch_size: 5
     wrap: True
     train:
       target: ldm.data.fingerprint.FingerprintTrain
@@ -55,5 +54,5 @@ lightning:
         every_n_epochs: 10
 
   trainer:
-    devices: 3,
+    devices: 2,3,
     benchmark: True

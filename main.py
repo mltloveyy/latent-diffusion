@@ -417,6 +417,41 @@ if __name__ == "__main__":
     # `nested.key=value` arguments are interpreted as config parameters.
     # configs are merged from left-to-right followed by command line parameters.
 
+    # model:
+    #   base_learning_rate: float
+    #   target: path to lightning module
+    #   params:
+    #       key: value
+    # data:
+    #   target: main.DataModuleFromConfig
+    #   params:
+    #      batch_size: int
+    #      wrap: bool
+    #      train:
+    #          target: path to train dataset
+    #          params:
+    #              key: value
+    #      validation:
+    #          target: path to validation dataset
+    #          params:
+    #              key: value
+    #      test:
+    #          target: path to test dataset
+    #          params:
+    #              key: value
+    # lightning: (optional, has sane defaults and can be specified on cmdline)
+    #   trainer:
+    #       additional arguments to trainer
+    #   logger:
+    #       logger to instantiate
+    #   modelcheckpoint:
+    #       modelcheckpoint to instantiate
+    #   callbacks:
+    #       callback1:
+    #           target: importpath
+    #           params:
+    #               key: value
+
     now = datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
 
     # add cwd for convenience and to make classes in this file available when
@@ -480,8 +515,7 @@ if __name__ == "__main__":
             cpu = True
             ngpu = 1
         else:
-            gpuinfo = trainer_config["devices"]
-            print(f"Running on GPUs {gpuinfo}")
+            print(f"Running on GPUs {trainer_config['devices']}")
             ngpu = len(lightning_config.trainer.devices.strip(",").split(','))
             cpu = False
             trainer_config["strategy"] = "ddp_find_unused_parameters_true" if ngpu > 1 else "auto"
@@ -564,9 +598,10 @@ if __name__ == "__main__":
             "target": "lightning.pytorch.callbacks.ModelCheckpoint",
             "params": {
                 "dirpath": ckptdir,
-                "filename": "best-{epoch:06}-{step:09}",
+                "filename": "best-{epoch:04}-{step:06}",
                 "verbose": True,
                 "save_last": True,
+                'save_weights_only': True,
             }
         }
         if hasattr(model, "monitor"):
@@ -589,7 +624,7 @@ if __name__ == "__main__":
                 "target": 'lightning.pytorch.callbacks.ModelCheckpoint',
                 'params': {
                     "dirpath": ckptdir,
-                    "filename": "{epoch:06}",
+                    "filename": "{epoch:04}",
                     "verbose": True,
                     'save_top_k': -1,
                     'every_n_epochs': 5,
