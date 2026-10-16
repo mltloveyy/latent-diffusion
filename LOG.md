@@ -179,9 +179,15 @@ python scripts/compute_latent_scale.py \
 # 2. 服务器训练（单卡；多卡改 yaml 里 lightning.trainer.devices）
 python main.py --base configs/seqmodel/latent_seq_fp.yaml -t -n s3_seq_fp --no-test
 
-# 3. 断点续训
-python main.py --base configs/seqmodel/latent_seq_fp.yaml -t -n s3_seq_fp --no-test \
-    --resume_from_checkpoint logs/<日期>_s3_seq_fp/checkpoints/last.ckpt
+# 3. 断点续训（权重级恢复）：把上次训练的 last.ckpt 填进 latent_seq_fp.yaml 的
+#    model.params.ckpt_path（init_from_ckpt 以 strict=False 加载，只恢复权重，
+#    不含优化器状态与 epoch 计数），并用新的 -n 名字开跑：
+#      params:
+#        ckpt_path: logs/<日期>_s3_seq_fp/checkpoints/last.ckpt
+python main.py --base configs/seqmodel/latent_seq_fp.yaml -t -n s3_seq_fp_v2 --no-test
+
+#    注意：main.py 没有 --resume_from_checkpoint 参数，该旗标会被 parse_known_args
+#    静默吞进配置不生效；权重级恢复只能走上面的 model.params.ckpt_path。
 
 # 本机 CPU 冒烟（Windows 下加 PYTHONUTF8=1 规避 rich 编码问题）
 PYTHONUTF8=1 python main.py --base configs/seqmodel/latent_seq_fp_tiny.yaml -t -n s3_smoke --no-test

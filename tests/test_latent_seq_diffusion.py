@@ -36,6 +36,12 @@ def test_ckpt_path_empty_string_is_none():
     assert m.first_stage_model is not None   # 构造成功即通过
 
 
+def test_top_level_ckpt_path_empty_string_ok():
+    """模型自身顶层 ckpt_path="" 同样不得触发 init_from_ckpt 崩溃（正式 yaml 默认就带这个键）"""
+    m = _tiny_model(ckpt_path="")
+    assert m.model is not None               # 构造成功即通过
+
+
 def test_vae_frozen_and_eval():
     m = _tiny_model()
     assert all(not p.requires_grad for p in m.first_stage_model.parameters())
@@ -83,3 +89,42 @@ def test_extract_semantic_passthrough():
     z_seq = m.get_latents(_fake_batch())
     feats = m.extract_semantic(z_seq)
     assert feats.shape == (1, 32, 16, 16)
+
+
+def test_context_clean_target_noised():
+    """钉住规范核心机制：forward 输入 = [干净的 context 潜变量, 加噪的目标潜变量]"""
+    m = _tiny_model()
+    z_seq = m.get_latents(_fake_batch(B=1, L=3))
+    captured = {}
+    orig_forward = m.model.forward
+
+    def spy(x, t):
+        captured["z_in"] = x.detach().clone()
+        captured["t"] = t
+        return orig_forward(x, t)
+
+    m.model.forward = spy
+    t = torch.randint(0, m.timesteps, (1,))
+    eps_pred, noise = m(z_seq, t)
+    z_in = captured["z_in"]
+    assert torch.allclose(z_in[:, :-1], z_seq[:, :-1])          # context 保持干净
+    assert not torch.allclose(z_in[:, -1], z_seq[:, -1])        # 目标位被加噪
+    z_noisy = m.schedule.q_sample(z_seq[:, -1], captured["t"], noise)
+    assert torch.allclose(z_in[:, -1], z_noisy, atol=1e-5)      # 加噪量与调度一致
+    m.model.forward = orig_forward
+
+
+def test_perturbing_context_changes_eps():
+    """上下文确实参与 ε 预测（防止实现悄悄丢掉 context）。
+    两次调用前各自固定随机种子，保证唯一差异来自被扰动的 context 切片。"""
+    m = _tiny_model().eval()
+    z_seq = m.get_latents(_fake_batch(B=1, L=3))
+    t = torch.full((1,), 5, dtype=torch.long)
+    torch.manual_seed(1)
+    with torch.no_grad():
+        eps1, _ = m(z_seq, t)
+        z2 = z_seq.clone()
+        z2[:, 0] = torch.randn_like(z2[:, 0])
+        torch.manual_seed(1)
+        eps2, _ = m(z2, t)
+    assert not torch.allclose(eps1, eps2)

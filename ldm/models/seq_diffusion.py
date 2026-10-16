@@ -43,7 +43,8 @@ class LatentSeqDiffusion(pl.LightningModule):
         self.model = instantiate_from_config(seqmodel_config)
         self.schedule = LatentDiffusionSchedule(timesteps, beta_start, beta_end)
 
-        if ckpt_path is not None:
+        # ckpt_path 为空字符串视为未提供（yaml 默认键），仅非空时做权重级恢复
+        if ckpt_path:
             self.init_from_ckpt(ckpt_path, ignore_keys=ignore_keys)
 
     def init_from_ckpt(self, path, ignore_keys=list()):
@@ -98,7 +99,8 @@ class LatentSeqDiffusion(pl.LightningModule):
         loss = F.mse_loss(eps_pred, noise)
         self.log(f"{split}/loss_simple", loss,
                  prog_bar=True, logger=True,
-                 on_step=(split == "train"), on_epoch=True)
+                 on_step=(split == "train"), on_epoch=True,
+                 sync_dist=(split == "val"))   # 多卡时验证指标跨卡同步（单卡 no-op）
         return loss
 
     def training_step(self, batch, batch_idx):
