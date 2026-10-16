@@ -158,3 +158,37 @@ data_root
   - 加上 SpectralNorm 谱归一化
   - 开启双边 label smoothing
   - 判别器损失替换为 relativistic hinge loss（R3GAN）
+## S3 潜空间扩散序列建模（2026.10.16）
+
+- `ldm/modules/seqmodel.py`: `LatentDiffusionSchedule`（线性 β 调度，T=1000, 1e-4→2e-2）+ `CausalSliceTransformer`（SeqModel 骨干：分解式位置级因果注意力 + 空间细化；`extract_semantic` 供 S4 语义流）
+- `ldm/models/seq_diffusion.py`: `LatentSeqDiffusion`——冻结 VAE 编码切片序列，context 潜变量干净、目标切片潜变量加噪，因果 Transformer 预测 ε（无监督 ε-MSE）
+- `ldm/data/seq_slices.py`: 连续切片序列数据集（xz+yz 双向窗口均参与，预处理与 AE 完全一致）
+- `scripts/compute_latent_scale.py`: 计算 VAE 潜变量标准差 → `scale_factor`
+- 测试: `tests/test_seqmodel.py`、`tests/test_seq_slices.py`、`tests/test_latent_seq_diffusion.py`
+
+### 训练使用
+
+```bash
+# 1. VAE 权重同步回来后（两处）：
+#    a) configs/seqmodel/latent_seq_fp.yaml 的 first_stage_config.params.ckpt_path 填 VAE ckpt 路径
+#    b) 运行下面命令，把输出的 scale_factor 填入同一 yaml 的 scale_factor
+python scripts/compute_latent_scale.py \
+    --base configs/autoencoder/autoencoder_kl_32x32x4_fp.yaml \
+    --ckpt <vae.ckpt路径> --num_slices 256
+
+# 2. 服务器训练（单卡；多卡改 yaml 里 lightning.trainer.devices）
+python main.py --base configs/seqmodel/latent_seq_fp.yaml -t -n s3_seq_fp --no-test
+
+# 3. 断点续训
+python main.py --base configs/seqmodel/latent_seq_fp.yaml -t -n s3_seq_fp --no-test \
+    --resume_from_checkpoint logs/<日期>_s3_seq_fp/checkpoints/last.ckpt
+
+# 本机 CPU 冒烟（Windows 下加 PYTHONUTF8=1 规避 rich 编码问题）
+PYTHONUTF8=1 python main.py --base configs/seqmodel/latent_seq_fp_tiny.yaml -t -n s3_smoke --no-test
+```
+
+注意：仓库 main.py 的测试旗标是 `--no-test`（连字符）；`--no_test` 会被 parse_known_args 吞进配置不生效。
+
+## 开发日志（续）
+
+- `2026.10.16`: 实现 S3 潜空间扩散序列建模（专利 S3），测试 22 项全过，CPU 冒烟跑通；修复 `ldm/modules/losses/__init__.py` 残留的 SSIMWithDiscriminator 导入（871e497 遗留，原 HEAD 上 AE 训练入口无法启动）
