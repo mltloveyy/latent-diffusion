@@ -105,7 +105,7 @@ class LatentSeqDiffusion(pl.LightningModule):
         return self.shared_step(batch, "train")
 
     def validation_step(self, batch, batch_idx):
-        return self.shared_step(batch, "validation")
+        return self.shared_step(batch, "val")   # 键名 val/loss_simple 与 monitor 及仓库惯例一致
 
     def extract_semantic(self, z_seq):
         """S4 语义流接口：潜变量序列（已缩放）→ 末位置语义特征 (B, d_model, h, w)"""
