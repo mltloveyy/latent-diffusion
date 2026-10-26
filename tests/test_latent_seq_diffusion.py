@@ -91,8 +91,9 @@ def test_extract_semantic_passthrough():
     assert feats.shape == (1, 32, 16, 16)
 
 
-def test_context_clean_target_noised():
-    """钉住规范核心机制：forward 输入 = [干净的 context 潜变量, 加噪的目标潜变量]"""
+def test_whole_window_noised_same_t():
+    """钉住专利修订核心机制：窗口内全部切片按同一时间步 t 加噪后输入 SeqModel，
+    且逐位置输出 ε̂（含形状）"""
     m = _tiny_model()
     z_seq = m.get_latents(_fake_batch(B=1, L=3))
     captured = {}
@@ -100,18 +101,28 @@ def test_context_clean_target_noised():
 
     def spy(x, t):
         captured["z_in"] = x.detach().clone()
-        captured["t"] = t
+        captured["t"] = t.clone()
         return orig_forward(x, t)
 
     m.model.forward = spy
     t = torch.randint(0, m.timesteps, (1,))
     eps_pred, noise = m(z_seq, t)
-    z_in = captured["z_in"]
-    assert torch.allclose(z_in[:, :-1], z_seq[:, :-1])          # context 保持干净
-    assert not torch.allclose(z_in[:, -1], z_seq[:, -1])        # 目标位被加噪
-    z_noisy = m.schedule.q_sample(z_seq[:, -1], captured["t"], noise)
-    assert torch.allclose(z_in[:, -1], z_noisy, atol=1e-5)      # 加噪量与调度一致
     m.model.forward = orig_forward
+    z_in = captured["z_in"]
+    assert z_in.shape == z_seq.shape
+    assert not torch.allclose(z_in, z_seq)                       # 全部位置都被加噪
+    expected = m.schedule.q_sample(z_seq, captured["t"], noise)  # 同一时间步 t
+    assert torch.allclose(z_in, expected, atol=1e-5)
+    assert eps_pred.shape == z_seq.shape                         # 逐位置 ε̂
+
+
+def test_extract_semantic_k_context():
+    """S4 契约（专利修订）：语义流输入为前 k 张干净潜变量（不含当前切片），
+    返回末位置语义特征 (B, d_model, H, W)"""
+    m = _tiny_model()
+    z_ctx = m.get_latents(_fake_batch(B=1, L=3))[:, :-1]         # 去掉当前切片
+    feats = m.extract_semantic(z_ctx)
+    assert feats.shape == (1, 32, 16, 16)
 
 
 def test_perturbing_context_changes_eps():

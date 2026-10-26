@@ -83,12 +83,13 @@ class LatentSeqDiffusion(pl.LightningModule):
         return z * self.scale_factor
 
     def forward(self, x_seq, t):
-        """x_seq: (B, L, C, h, w) 已缩放；t: (B,) long → (ε̂, noise)"""
-        B = x_seq.shape[0]
-        noise = torch.randn(B, *x_seq.shape[2:], device=x_seq.device, dtype=x_seq.dtype)
-        z_noisy = self.schedule.q_sample(x_seq[:, -1], t, noise)
-        z_in = torch.cat([x_seq[:, :-1], z_noisy.unsqueeze(1)], dim=1)
-        eps_pred = self.model(z_in, t)
+        """x_seq: (B, L, C, h, w) 已缩放的窗口潜变量序列（末位为当前切片）；t: (B,) long
+        → (逐位置 ε̂ (B, L, C, h, w), noise)。
+        专利 S3 修订：窗口内各切片潜变量按同一时间步 t 加噪后整窗输入 SeqModel，
+        训练目标为对窗口内各切片位置取平均的简化噪声预测损失（MSE 天然逐位置平均）。"""
+        noise = torch.randn_like(x_seq)
+        z_noisy = self.schedule.q_sample(x_seq, t, noise)
+        eps_pred = self.model(z_noisy, t)
         return eps_pred, noise
 
     def shared_step(self, batch, split):
@@ -110,7 +111,8 @@ class LatentSeqDiffusion(pl.LightningModule):
         return self.shared_step(batch, "val")   # 键名 val/loss_simple 与 monitor 及仓库惯例一致
 
     def extract_semantic(self, z_seq):
-        """S4 语义流接口：潜变量序列（已缩放）→ 末位置语义特征 (B, d_model, h, w)"""
+        """S4 语义流接口（专利修订）：输入前 k 张切片的干净潜变量（已缩放，不含当前切片）
+        → 末位置语义特征 (B, d_model, h, w)，等价于最小扩散时间步的窗口形态"""
         return self.model.extract_semantic(z_seq)
 
     def configure_optimizers(self):
@@ -123,12 +125,12 @@ class LatentSeqDiffusion(pl.LightningModule):
         B = z_seq.shape[0]
         t = torch.randint(0, self.timesteps, (B,), device=z_seq.device, dtype=torch.long)
         eps_pred, noise = self(z_seq, t)
-        z_noisy = self.schedule.q_sample(z_seq[:, -1], t, noise)
-        s1 = self.schedule.sqrt_alphas_cumprod[t].view(-1, 1, 1, 1)
-        s2 = self.schedule.sqrt_one_minus_alphas_cumprod[t].view(-1, 1, 1, 1)
+        z_noisy = self.schedule.q_sample(z_seq, t, noise)
+        s1 = self.schedule.sqrt_alphas_cumprod[t].view(-1, 1, 1, 1, 1)
+        s2 = self.schedule.sqrt_one_minus_alphas_cumprod[t].view(-1, 1, 1, 1, 1)
         x0_hat = (z_noisy - s2 * eps_pred) / s1
         return {
             "context": self.decode_first_stage(z_seq[:, -2]),
             "target": self.decode_first_stage(z_seq[:, -1]),
-            "denoise_x0": self.decode_first_stage(x0_hat),
+            "denoise_x0": self.decode_first_stage(x0_hat[:, -1]),   # 当前位（末位）的去噪估计
         }

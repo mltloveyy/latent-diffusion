@@ -158,6 +158,7 @@ data_root
   - 加上 SpectralNorm 谱归一化
   - 开启双边 label smoothing
   - 判别器损失替换为 relativistic hinge loss（R3GAN）
+
 ## S3 潜空间扩散序列建模（2026.10.16）
 
 - `ldm/modules/seqmodel.py`: `LatentDiffusionSchedule`（线性 β 调度，T=1000, 1e-4→2e-2）+ `CausalSliceTransformer`（SeqModel 骨干：分解式位置级因果注意力 + 空间细化；`extract_semantic` 供 S4 语义流）
@@ -198,3 +199,10 @@ PYTHONUTF8=1 python main.py --base configs/seqmodel/latent_seq_fp_tiny.yaml -t -
 ## 开发日志（续）
 
 - `2026.10.16`: 实现 S3 潜空间扩散序列建模（专利 S3），测试 22 项全过，CPU 冒烟跑通；修复 `ldm/modules/losses/__init__.py` 残留的 SSIMWithDiscriminator 导入（871e497 遗留，原 HEAD 上 AE 训练入口无法启动）
+- `2026.10.26`: 对齐专利说明书 10-25 修订版的 S3 机制（核心变更）：
+  - 加噪从"仅目标切片"改为**窗口内全部 k+1 张切片按同一时间步 t 加噪**（`LatentDiffusionSchedule.q_sample` 支持 5-D）
+  - SeqModel 输出从末位 ε̂ 改为**逐位置 ε̂ (B,L,C,H,W)**，t 嵌入广播注入全部位置
+  - 训练损失为**对窗口内各切片位置取平均**的简化 ε-MSE（MSE 逐元素平均天然满足），总损失为滑窗平均
+  - `extract_semantic`（S4 契约）：输入改为**前 k 张干净潜变量、不含当前切片**，等价最小扩散时间步（t=0 注入）
+  - 留档（S6 用）：微调阶段扩散重建辅助损失同样在窗口内各切片位置取平均
+  - 测试 26 项全过（含"整窗同 t 加噪"变异验证钉），CPU 冒烟 EXIT=0

@@ -48,11 +48,12 @@ def _tiny_seqmodel(latent_size=8):
 
 
 def test_seqmodel_forward_shape():
+    """专利 S3 修订：逐位置噪声预测，输出 (B, L, C, H, W)"""
     m = _tiny_seqmodel()
     x = torch.randn(2, 5, 4, 8, 8)
     t = torch.randint(0, 1000, (2,))
     eps = m(x, t)
-    assert eps.shape == (2, 4, 8, 8)
+    assert eps.shape == (2, 5, 4, 8, 8)
     assert torch.isfinite(eps).all()
 
 

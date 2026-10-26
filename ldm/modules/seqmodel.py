@@ -25,9 +25,10 @@ class LatentDiffusionSchedule(nn.Module):
         self.timesteps = timesteps
 
     def q_sample(self, x_start, t, noise):
-        """x_start: (B, C, H, W)，t: (B,) long → 加噪状态 (B, C, H, W)"""
-        s1 = self.sqrt_alphas_cumprod[t].view(-1, 1, 1, 1)
-        s2 = self.sqrt_one_minus_alphas_cumprod[t].view(-1, 1, 1, 1)
+        """x_start: (B, C, H, W) 或 (B, L, C, H, W)，t: (B,) long → 加噪状态（与 x_start 同形）
+        4-D 时 t 逐样本、5-D 时 t 逐样本且窗口内各切片共享同一时间步（专利 S3 修订）"""
+        s1 = self.sqrt_alphas_cumprod[t].view(-1, *([1] * (x_start.dim() - 1)))
+        s2 = self.sqrt_one_minus_alphas_cumprod[t].view(-1, *([1] * (x_start.dim() - 1)))
         return s1 * x_start + s2 * noise
 
 
@@ -99,20 +100,26 @@ class CausalSliceTransformer(nn.Module):
         return h
 
     def forward(self, x, t=None):
-        """x: (B, L, C, H, W)，末位为目标切片；t: (B,) 扩散时间步（None 视为 0）
-        返回 ε̂: (B, C, H, W)"""
-        B = x.shape[0]
+        """x: (B, L, C, H, W) 窗口内各切片按同一时间步 t 加噪后的潜变量序列；
+        t: (B,) 扩散时间步（None 视为 0），作为全窗口共享条件。
+        返回逐位置噪声预测 ε̂: (B, L, C, H, W)——因果掩码下位置 i 的预测
+        仅依赖窗口起点至位置 i（含）的加噪潜变量与时间步 t（专利 S3 修订）。"""
+        B, L, C, H, W = x.shape
         if t is None:
             t = torch.zeros(B, dtype=torch.long, device=x.device)
-        h = self._features(x)
+        h = self._features(x)                                       # (B, L, D, H, W)
         t_emb = self.time_embed(timestep_embedding(t, h.shape[2]))  # (B, D)
-        h = h.clone()
-        h[:, -1] = h[:, -1] + t_emb[:, :, None, None]               # 时间步只注入目标位
-        feats = self.spatial_refine(h[:, -1])                       # (B, D, H, W)
-        return self.eps_head(feats)
+        h = h + t_emb[:, None, :, None, None]                       # 时间步注入全部位置
+        feats = self.spatial_refine(h.reshape(B * L, -1, H, W))     # 逐位置空间细化
+        return self.eps_head(feats).reshape(B, L, C, H, W)          # (B, L, C, H, W)
 
     def extract_semantic(self, x):
-        """语义流特征（S4）：末位置隐状态经空间细化，(B, d_model, H, W)。
-        不注入时间步——语义特征与扩散时刻无关。"""
+        """语义流特征（S4，专利修订）：输入前 k 张切片的干净潜变量（不含当前切片），
+        等价于最小扩散时间步（t=0）的窗口形态；返回末位置隐状态经空间细化的
+        (B, d_model, H, W)——蕴含前序切片沿序列方向演化至当前切片的预测性表征。"""
+        B = x.shape[0]
+        t0 = torch.zeros(B, dtype=torch.long, device=x.device)
         h = self._features(x)
-        return self.spatial_refine(h[:, -1])
+        t_emb = self.time_embed(timestep_embedding(t0, h.shape[2]))
+        h = h + t_emb[:, None, :, None, None]
+        return self.spatial_refine(h[:, -1])                        # (B, d_model, H, W)
