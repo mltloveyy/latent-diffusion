@@ -68,7 +68,8 @@ def main():
             vals.append(z.flatten())
     std = torch.cat(vals).std().item()
     print(f"潜变量标准差 = {std:.6f}")
-    print(f"建议在 configs/seqmodel/latent_seq_fp.yaml 中设置 scale_factor: {std:.6f}")
+    print(f"建议在 configs/seqmodel/latent_seq_fp.yaml 中设置 scale_factor: {1.0 / std:.6f}")
+    print("（LDM 惯例：encode 乘 scale_factor / decode 除回，scale_factor = 1/std，使扩散在 std≈1 的潜空间进行）")
 
 
 if __name__ == "__main__":

@@ -35,13 +35,11 @@
 
 #### 训练方案B（潜在扩散）
 
-  - 加噪路径：窗口内全部切片 $\{z_{i-k}, ..., z_i\}$ 按同一时间步 $t$ 加噪：$z_m$ -> $z_{m,t} = \sqrt{\bar\alpha_t}\,z_m + \sqrt{1-\bar\alpha_t}\,\epsilon_m$，其中 $\epsilon_m$ 为逐位置独立采样的高斯噪声，$t$ 从 $[0, T)$ 均匀采样
-  - 去噪路径：整窗加噪序列 -> 🔥*SeqModel*（因果掩码：位置 $m$ 仅聚合其前序及自身的加噪潜变量，时间步 $t$ 注入全部位置）-> 逐位置噪声预测 $\epsilon‘_m$；当前切片的还原估计 $\hat z_i = (z_{i,t} - \sqrt{1-\bar\alpha_t}\,\epsilon’_i) / \sqrt{\bar\alpha_t}$
+  - 加噪路径：窗口内全部切片 $\{z_{i-k}, ..., z_i\}$ 按同一时间步 $t$ 加噪：$z_m$ -> $z_{m,t} = \sqrt{\bar\alpha_t}\,z_m + \sqrt{1-\bar\alpha_t}\,\epsilon_m$。其中 $m \in [i-k, i)$，$\epsilon_m$ 为逐位置独立采样的高斯噪声，$t$ 从 $[0, T)$ 均匀采样
+  - 去噪路径：整窗加噪序列 -> 🔥*SeqModel*（因果掩码：位置 $m$ 仅聚合其前序及自身的加噪潜变量，时间步 $t$ 注入全部位置）-> 逐位置噪声预测 $\epsilon'_m$。当前切片的还原估计 $\hat z_i = (z_{i,t} - \sqrt{1-\bar\alpha_t}\,\epsilon'_i) / \sqrt{\bar\alpha_t}$
   - 损失计算：
-    - 噪声损失：$\mathrm{MSE}(\epsilon'_m, \epsilon_m)$ 对窗口内各切片位置取平均（无监督；总训练损失为所有滑窗的平均）
-  - 时间步课程：$t$ 较小时前序切片基本保留原始内容而当前切片部分受损，网络主要学习依据前序切片推断当前切片；$t$ 较大时整窗接近随机噪声，网络依据已学习的序列分布先验进行推断
-  - 下游衔接：预训练后噪声预测头弃用，因果自注意力主干复用为三维上下文特征提取器（S4 语义流输入前 $k$ 张干净潜变量、不含当前切片，等价最小扩散时间步 $t{=}0$）
-
+    - 噪声损失：$\mathrm{MSE}(\epsilon'_m, \epsilon_m)$ 对窗口内各切片位置取平均
+    - 重建损失：计算还原回像素空间后的数值差异
 - 序列预测不仅可以是最后一张，也可以是中间一张。不仅有“过去”的记忆，还有“未来”的预判，对于 3D 体数据分割来说，精度通常比只看过去要高。
 - 序列长度 $k$ 是一个重要的超参数，有以下几个考虑点：
   1. 感受野与空间常识：太小的话模型只能看到极局部的变化，信息不足，没学会解剖结构。
@@ -169,7 +167,7 @@ data_root
 - `ldm/modules/seqmodel.py`: `LatentDiffusionSchedule`（线性 β 调度，T=1000, 1e-4→2e-2）+ `CausalSliceTransformer`（SeqModel 骨干：分解式位置级因果注意力 + 空间细化；**逐位置噪声预测**，`extract_semantic` 供 S4 复用因果自注意力主干）
 - `ldm/models/seq_diffusion.py`: `LatentSeqDiffusion`——冻结 VAE 编码切片序列；**窗口内全部 k+1 张切片按同一时间步 t 加噪**后整窗输入；**逐位置 ε̂ (B,L,C,H,W)**；训练损失为**对窗口内各切片位置取平均**的简化 ε-MSE（无监督）
 - `ldm/data/seq_slices.py`: 连续切片序列数据集（xz+yz 双向窗口均参与，窗口沿序列滑动，预处理与 AE 完全一致）
-- `scripts/compute_latent_scale.py`: 计算 VAE 潜变量标准差 → `scale_factor`
+- `scripts/compute_latent_scale.py`: 计算 VAE 潜变量标准差 → `scale_factor`（= 1/std，LDM 惯例：encode 乘 / decode 除，使扩散在 std≈1 的潜空间进行）
 - 测试: `tests/test_seqmodel.py`、`tests/test_seq_slices.py`、`tests/test_latent_seq_diffusion.py`
 - 下游契约：S4 语义流输入为**前 k 张干净潜变量（不含当前切片）**，等价最小扩散时间步（t=0）；S6 扩散重建辅助损失同样在窗口内各切片位置取平均
 

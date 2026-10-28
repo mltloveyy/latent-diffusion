@@ -6,13 +6,13 @@ model:
     timesteps: 1000
     beta_start: 1e-4
     beta_end: 2e-2
-    scale_factor: 1.0        # VAE 权重同步后用 scripts/compute_latent_scale.py 重算
+    scale_factor: 0.208826   # = 1/潜变量std（128张切片实测 std=4.788671）；encode 乘 / decode 除（LDM 惯例），使扩散在 std≈1 的潜空间进行
     ckpt_path: ""            # S3 断点续训时填 logs/.../checkpoints/last.ckpt
     first_stage_config:
       target: ldm.models.autoencoder.AutoencoderKL
       params:
         embed_dim: 4
-        ckpt_path: ""        # VAE 训练权重同步回来后填路径
+        ckpt_path: logs/best-epoch=0999-step=1280000.ckpt   # VAE 训练权重（epoch999/step1.28M, PSNR 40.4dB）
         ddconfig:
           double_z: True
           z_channels: 4
@@ -49,7 +49,7 @@ data:
         context_window: 4
         input_size: 256
         stride: 1
-        train_volumes: [fig3_denoise, fig8_original_oct_image, fig4_5_p0004]
+        train_volumes: [fig3_denoise, fig8_original_oct_image, fig4_5_p0004, fig4_5_p0019]
     validation:
       target: ldm.data.seq_slices.SeqSlicesValidation
       params:
