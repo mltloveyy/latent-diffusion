@@ -171,6 +171,13 @@ data_root
 - 测试: `tests/test_seqmodel.py`、`tests/test_seq_slices.py`、`tests/test_latent_seq_diffusion.py`
 - 下游契约：S4 语义流输入为**前 k 张干净潜变量（不含当前切片）**，等价最小扩散时间步（t=0）；S6 扩散重建辅助损失同样在窗口内各切片位置取平均
 
+### S3 验收（2026-10-29，通过）
+
+- 训练：fp32 单卡 30 epoch（fp16 双卡首轮曾在 epoch3 中段坍缩，弃用），bs16 + `--scale_lr` → lr 8e-4；val/loss_simple 0.171 → **0.1091（best, epoch24）**，已贴该目标的信息论地板（估算 0.05~0.15：t 小段 ε 不可读 ≈1 + 过渡带 + 大 t 平凡可读 ≈0 的均匀平均）
+- 按 t 分桶验收（`scripts/eval_seq_loss_by_t.py`，验证体固定噪声）：t=10/50/100/200/300/500/800 → 0.847/0.540/0.377/0.214/0.129/0.039/0.0024，单调 S 形无异常
+- 定量结论：**相邻帧潜变量 ~89% 方差可由前 4 帧解释（σ_novel ≈ 0.105）**——Z 向上下文信息充足，S4 语义流设计前提成立
+- 最终产物：`logs/2026-10-28T16-17-19_s3_seq_fp/checkpoints/best-epoch=0024-step=009549.ckpt`
+
 ### 训练使用
 
 ```bash
