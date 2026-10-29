@@ -70,7 +70,8 @@ def main():
         for i in range(0, len(sel), args.batch_size):
             batch_idx = sel[i:i + args.batch_size]
             seqs = np.stack([ds[int(j)]["seq"] for j in batch_idx])
-            batch = {"seq": torch.from_numpy(seqs)}
+            # 绕过了 Lightning，需手动把 batch 搬到模型所在设备
+            batch = {"seq": torch.from_numpy(seqs).to(device)}
             z_seq = model.get_latents(batch).to(device)          # (b, L, C, h, w) 已缩放
             for t_val in t_list:
                 t = torch.full((z_seq.shape[0],), t_val, dtype=torch.long, device=device)

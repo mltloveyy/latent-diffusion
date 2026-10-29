@@ -182,7 +182,14 @@ python scripts/compute_latent_scale.py \
     --ckpt <vae.ckpt路径> --num_slices 256
 
 # 2. 服务器训练（单卡；多卡改 yaml 里 lightning.trainer.devices）
-python main.py --base configs/seqmodel/latent_seq_fp.yaml -t -n s3_seq_fp --no-test
+#    实际使用（2026-10-28 首轮完整训练）: bs=16 + --scale_lr → 实际 lr = 16×5e-5 = 8e-4
+#    注意: fp32。首轮曾用 16-mixed 双卡训练，epoch3 中段坍缩(ε̂≡0, loss 钉 1.0)，fp32 后 30 epoch 稳定
+python main.py --base configs/seqmodel/latent_seq_fp.yaml -t -n s3_seq_fp --no-test --scale_lr
+
+# 2.1 收敛判据（验证体上按 t 分桶，固定噪声种子，跨 ckpt 可复现；GPU 秒级）
+python scripts/eval_seq_loss_by_t.py \
+    --base configs/seqmodel/latent_seq_fp.yaml \
+    --ckpt logs/<run>/checkpoints/best-epoch=0024-step=009549.ckpt
 
 # 3. 断点续训（权重级恢复）：把上次训练的 last.ckpt 填进 latent_seq_fp.yaml 的
 #    model.params.ckpt_path（init_from_ckpt 以 strict=False 加载，只恢复权重，
