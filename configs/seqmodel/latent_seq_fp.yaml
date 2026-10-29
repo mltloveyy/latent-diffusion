@@ -1,0 +1,73 @@
+model:
+  base_learning_rate: 5e-5
+  target: ldm.models.seq_diffusion.LatentSeqDiffusion
+  params:
+    monitor: "val/loss_simple"
+    timesteps: 1000
+    beta_start: 1e-4
+    beta_end: 2e-2
+    scale_factor: 0.209288  # 运行scripts/compute_latent_scale.py得到
+    ckpt_path: ""
+    first_stage_config:
+      target: ldm.models.autoencoder.AutoencoderKL
+      params:
+        embed_dim: 4
+        ckpt_path: logs/2026-08-26T10-49-46_autoencoder_kl_32x32x4_fp/checkpoints/best-epoch=0999-step=1280000.ckpt
+        ddconfig:
+          double_z: True
+          z_channels: 4
+          resolution: 256
+          in_channels: 3
+          out_ch: 3
+          ch: 128
+          ch_mult: [ 1,2,4,4 ]
+          num_res_blocks: 2
+          attn_resolutions: [ ]
+          dropout: 0.0
+    seqmodel_config:
+      target: ldm.modules.seqmodel.CausalSliceTransformer
+      params:
+        latent_channels: 4
+        latent_size: 32
+        d_model: 256
+        num_layers: 4
+        num_heads: 8
+        dim_feedforward: 1024
+        dropout: 0.1
+        max_seq_len: 16
+
+data:
+  target: main.DataModuleFromConfig
+  params:
+    batch_size: 16
+    wrap: True
+    num_workers: 4
+    train:
+      target: ldm.data.seq_slices.SeqSlicesTrain
+      params:
+        data_root: data/fingerprint/UESTC
+        context_window: 4
+        input_size: 256
+        stride: 1
+        train_volumes: [fig3_denoise, fig8_original_oct_image, fig4_5_p0004, fig4_5_p0019]
+    validation:
+      target: ldm.data.seq_slices.SeqSlicesValidation
+      params:
+        data_root: data/fingerprint/UESTC
+        context_window: 4
+        input_size: 256
+        stride: 4
+        val_volumes: [fig4_5_p0013]
+
+lightning:
+  callbacks:
+    image_logger:
+      target: main.ImageLogger
+      params:
+        batch_frequency: 2000
+        max_images: 4
+        increase_log_steps: True
+  trainer:
+    devices: "1,"
+    benchmark: True
+    max_epochs: 30
