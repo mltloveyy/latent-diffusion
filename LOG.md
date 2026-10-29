@@ -129,88 +129,37 @@ data_root
 
 ### 滑窗策略
 
-假设每个体数据由1600张1800×500 的B-scan图像组成，即`x=1800, y=1600, z=500, win_size=256, stride=128`
+假设每个体数据由1600张1800×500 的B-scan图像组成，即`x=1800, y=1600, z=500, win_size=500, stride=250`
 
 - 窗口数 `win_num = round((length - win_size) / stride) + 1`
 
 #### x-z面切片
 
 - 沿x和z方向滑窗
-- x方向: 13个窗口
-- z方向: 2个窗口
-- 生成 26 个子体数据，每个子体数据包含 1600 张 256×256 图像，总计 41600 张
+- x方向: 6个窗口
+- z方向: 1个窗口
+- 生成 6 个窗口，每个窗口包含 1600 张 500×500 图像，总计 9600 张
 
 #### y-z面切分
 
 - 沿y和z方向滑窗
-- y方向: 11个窗口
-- z方向: 2个窗口
-- 生成 22 个子体数据，每个子体数据包含 1800 张 256×256 图像，总计 39600 张
+- y方向: 5个窗口
+- z方向: 1个窗口
+- 生成 5 个窗口，每个窗口包含 1800 张 500×500 图像，总计 9000 张
 
-**单个体数据总计: 81200张 256×256 图像**
+**单个体数据总计: 18600张 500×500 图像**
 
 ## 开发日志
 
 - `2026.3.12`: 添加taming-transformers库，适配lightning==2.x
 - `2026.4.10`: fingerprint-scan数据类实现
 - `2026.8.11`: 优化fingerprint数据类实现(适配UESTC数据集)，跑通AutoencoderKL训练
+- `2026.10.29`: 实现潜空间扩散序列建模，跑通训练
 - `TODO`: 优化判别器训练稳定性
   - 关闭 BN2d
   - 加上 SpectralNorm 谱归一化
   - 开启双边 label smoothing
   - 判别器损失替换为 relativistic hinge loss（R3GAN）
 
-## S3 潜空间扩散序列建模
 
-（与专利说明书 2026-10-25 修订版 S3 对齐）
-
-- `ldm/modules/seqmodel.py`: `LatentDiffusionSchedule`（线性 β 调度，T=1000, 1e-4→2e-2）+ `CausalSliceTransformer`（SeqModel 骨干：分解式位置级因果注意力 + 空间细化；**逐位置噪声预测**，`extract_semantic` 供 S4 复用因果自注意力主干）
-- `ldm/models/seq_diffusion.py`: `LatentSeqDiffusion`——冻结 VAE 编码切片序列；**窗口内全部 k+1 张切片按同一时间步 t 加噪**后整窗输入；**逐位置 ε̂ (B,L,C,H,W)**；训练损失为**对窗口内各切片位置取平均**的简化 ε-MSE（无监督）
-- `ldm/data/seq_slices.py`: 连续切片序列数据集（xz+yz 双向窗口均参与，窗口沿序列滑动，预处理与 AE 完全一致）
-- `scripts/compute_latent_scale.py`: 计算 VAE 潜变量标准差 → `scale_factor`（= 1/std，LDM 惯例：encode 乘 / decode 除，使扩散在 std≈1 的潜空间进行）
-- 测试: `tests/test_seqmodel.py`、`tests/test_seq_slices.py`、`tests/test_latent_seq_diffusion.py`
-- 下游契约：S4 语义流输入为**前 k 张干净潜变量（不含当前切片）**，等价最小扩散时间步（t=0）；S6 扩散重建辅助损失同样在窗口内各切片位置取平均
-
-### S3 验收（2026-10-29，通过）
-
-- 训练：fp32 单卡 30 epoch（fp16 双卡首轮曾在 epoch3 中段坍缩，弃用），bs16 + `--scale_lr` → lr 8e-4；val/loss_simple 0.171 → **0.1091（best, epoch24）**，已贴该目标的信息论地板（估算 0.05~0.15：t 小段 ε 不可读 ≈1 + 过渡带 + 大 t 平凡可读 ≈0 的均匀平均）
-- 按 t 分桶验收（`scripts/eval_seq_loss_by_t.py`，验证体固定噪声）：t=10/50/100/200/300/500/800 → 0.847/0.540/0.377/0.214/0.129/0.039/0.0024，单调 S 形无异常
-- 定量结论：**相邻帧潜变量 ~89% 方差可由前 4 帧解释（σ_novel ≈ 0.105）**——Z 向上下文信息充足，S4 语义流设计前提成立
-- 最终产物：`logs/2026-10-28T16-17-19_s3_seq_fp/checkpoints/best-epoch=0024-step=009549.ckpt`
-
-### 训练使用
-
-```bash
-# 1. VAE 权重同步回来后（两处）：
-#    a) configs/seqmodel/latent_seq_fp.yaml 的 first_stage_config.params.ckpt_path 填 VAE ckpt 路径
-#    b) 运行下面命令，把输出的 scale_factor 填入同一 yaml 的 scale_factor
-python scripts/compute_latent_scale.py \
-    --base configs/autoencoder/autoencoder_kl_32x32x4_fp.yaml \
-    --ckpt <vae.ckpt路径> --num_slices 256
-
-# 2. 服务器训练（单卡；多卡改 yaml 里 lightning.trainer.devices）
-#    实际使用（2026-10-28 首轮完整训练）: bs=16 + --scale_lr → 实际 lr = 16×5e-5 = 8e-4
-#    注意: fp32。首轮曾用 16-mixed 双卡训练，epoch3 中段坍缩(ε̂≡0, loss 钉 1.0)，fp32 后 30 epoch 稳定
-python main.py --base configs/seqmodel/latent_seq_fp.yaml -t -n s3_seq_fp --no-test --scale_lr
-
-# 2.1 收敛判据（验证体上按 t 分桶，固定噪声种子，跨 ckpt 可复现；GPU 秒级）
-python scripts/eval_seq_loss_by_t.py \
-    --base configs/seqmodel/latent_seq_fp.yaml \
-    --ckpt logs/<run>/checkpoints/best-epoch=0024-step=009549.ckpt
-
-# 3. 断点续训（权重级恢复）：把上次训练的 last.ckpt 填进 latent_seq_fp.yaml 的
-#    model.params.ckpt_path（init_from_ckpt 以 strict=False 加载，只恢复权重，
-#    不含优化器状态与 epoch 计数），并用新的 -n 名字开跑：
-#      params:
-#        ckpt_path: logs/<日期>_s3_seq_fp/checkpoints/last.ckpt
-python main.py --base configs/seqmodel/latent_seq_fp.yaml -t -n s3_seq_fp_v2 --no-test
-
-#    注意：main.py 没有 --resume_from_checkpoint 参数，该旗标会被 parse_known_args
-#    静默吞进配置不生效；权重级恢复只能走上面的 model.params.ckpt_path。
-
-# 本机 CPU 冒烟（Windows 下加 PYTHONUTF8=1 规避 rich 编码问题）
-PYTHONUTF8=1 python main.py --base configs/seqmodel/latent_seq_fp_tiny.yaml -t -n s3_smoke --no-test
-```
-
-注意：仓库 main.py 的测试旗标是 `--no-test`（连字符）；`--no_test` 会被 parse_known_args 吞进配置不生效。
 

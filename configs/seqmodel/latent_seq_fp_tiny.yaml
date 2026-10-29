@@ -62,7 +62,7 @@ lightning:
       params:
         batch_frequency: 1
         max_images: 2
-    cuda_callback:            # main.CUDACallback 假设 CUDA 设备，CPU 冒烟时替换为无操作基类
+    cuda_callback:
       target: lightning.pytorch.callbacks.Callback
   trainer:
     max_epochs: 1
